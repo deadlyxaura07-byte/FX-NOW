@@ -1,25 +1,27 @@
-# FX NOW
+# FX NOW — JARVIS-style Android assistant
 
-FX NOW is an Android launcher MVP built with Kotlin and Jetpack Compose.
+FX NOW now uses a redesigned native Android assistant screen with an animated orb, chat UI, voice input through Android speech recognition, spoken replies through Android Text-to-Speech, and provider selection.
 
-## Included in the Android app
-- Premium dark dashboard
-- Installed-app search and launch
-- Local task board saved on device
-- Built-in command shortcuts
-- Settings shortcut and launcher Home intent
-- GitHub Actions workflow to build a debug APK
-
-## Build an APK
-The GitHub Actions workflow at `.github/workflows/android.yml` runs on pushes to `main` and can also be started manually:
-1. Open the repository's **Actions** tab.
+## Build APK
+1. Open the **Actions** tab.
 2. Select **Build FX NOW APK**.
-3. Choose **Run workflow** on the `main` branch.
-4. Open the completed run and download the `FX-NOW-debug-APK` artifact.
-5. Extract the ZIP and install the APK on Android.
+3. Open the latest successful run and download the **FX-NOW-debug-APK** artifact.
+4. Extract the ZIP and install `app-debug.apk` on your Android device.
 
-## AI assistant upgrade status
-A separate FX NOW web/backend upgrade source package has been prepared. It includes a Node.js server, provider adapters (Gemini-first, OpenAI-compatible, and Claude), an animated web interface, and automated tests. The package requires a deployed HTTPS backend and server-side provider API key before the Android app can deliver real AI responses. It has not yet been merged into this Kotlin Android application.
+## Connect real AI
+The app uses a secure backend proxy; provider API keys must never be placed inside the APK.
+1. Deploy the Node backend in the `fxnow-upgraded.zip` source package to an HTTPS host.
+2. Set a server-side provider key such as `GEMINI_API_KEY` (free-tier availability and quotas vary), `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`.
+3. Optionally configure `FXNOW_ACCESS_TOKEN` on the server.
+4. Open FX NOW → Settings and enter the deployed HTTPS backend URL and optional access token.
+5. Select Automatic, Gemini, OpenAI-compatible, or Claude and send a test message.
 
 ## Current limitations
-The Kotlin Android app is still an MVP: an actual AI provider, native voice assistant, online research, reminders, and autonomous coding are not connected in this Android app. The debug APK is unsigned and should be treated as a test build until verified on a physical device.
+- The Android app does not itself host the backend. Real AI chat requires the backend to be deployed and configured.
+- Provider API keys are server-side only; never paste them into the app.
+- Voice input uses Android's installed speech-recognition service; availability depends on the device and language settings.
+- This is a debug APK for testing, not a production-signed release.
+- Calendar, reminders, broad device automation, and file operations are not implemented yet.
+
+## Source
+The secure Node backend and browser/PWA version are included in the separately generated `fxnow-upgraded.zip`. The native Android UI calls its `/api/chat` endpoint.
