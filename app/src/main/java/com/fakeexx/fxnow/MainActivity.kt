@@ -1,188 +1,188 @@
 package com.fakeexx.fxnow
-
-import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.BorderStroke
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.*
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Locale
+import kotlin.concurrent.thread
 
-private val Ink = Color(0xFF08090D)
-private val Panel = Color(0xFF151720)
-private val Gold = Color(0xFFE6C987)
-private val Muted = Color(0xFF9A9EAA)
+private val Bg = Color(0xFF050711)
+private val Panel = Color(0xFF111827)
+private val Cyan = Color(0xFF69E4FF)
+private val Violet = Color(0xFF9B8CFF)
+private val Soft = Color(0xFF9BA9BD)
 
 class MainActivity : ComponentActivity() {
+ private var tts: TextToSpeech? = null
+ private val voiceResult = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+  val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+  if (!spoken.isNullOrBlank()) onVoiceText?.invoke(spoken)
+ }
+ private var onVoiceText: ((String) -> Unit)? = null
  override fun onCreate(savedInstanceState: Bundle?) {
   super.onCreate(savedInstanceState)
-  setContent { FxNow(this) }
+  tts = TextToSpeech(this) { status -> if (status == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
+  setContent { FxNowScreen(
+   onListen = { callback -> onVoiceText = callback; try { voiceResult.launch(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "hi-IN")
+    putExtra(RecognizerIntent.EXTRA_PROMPT, "FX NOW ko command dein")
+   }) } catch (_: Exception) { callback("Voice recognition is not available on this device.") } },
+   onSpeak = { tts?.speak(it, TextToSpeech.QUEUE_FLUSH, null, "fxnow-reply") },
+   onStop = { tts?.stop() }
+  ) }
  }
+ override fun onDestroy() { tts?.shutdown(); super.onDestroy() }
 }
 
 @Composable
-private fun FxNow(ctx: Context) {
- var page by remember { mutableStateOf("Home") }
- var query by remember { mutableStateOf("") }
- var command by remember { mutableStateOf("") }
- var status by remember { mutableStateOf("Ready when you are, boss.") }
- var tasks by remember { mutableStateOf(loadTasks(ctx)) }
- val apps = remember {
-  val pm = ctx.packageManager
-  val i = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-  @Suppress("DEPRECATION")
-  pm.queryIntentActivities(i, PackageManager.MATCH_ALL).map { it.loadLabel(pm).toString() to it.activityInfo.packageName }.distinctBy { it.second }.sortedBy { it.first.lowercase() }
- }
- MaterialTheme(colorScheme = darkColorScheme(primary = Gold, background = Ink, surface = Panel)) {
-  Column(Modifier.fillMaxSize().background(Ink).padding(18.dp)) {
-   Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+private fun FxNowScreen(onListen: ((String) -> Unit) -> Unit, onSpeak: (String) -> Unit, onStop: () -> Unit) {
+ var input by remember { mutableStateOf("") }
+ var baseUrl by remember { mutableStateOf("") }
+ var token by remember { mutableStateOf("") }
+ var provider by remember { mutableStateOf("auto") }
+ var showSettings by remember { mutableStateOf(false) }
+ var speakReplies by remember { mutableStateOf(true) }
+ var busy by remember { mutableStateOf(false) }
+ var status by remember { mutableStateOf("SYSTEM READY • CONNECT A BACKEND IN SETTINGS") }
+ var messages by remember { mutableStateOf(listOf("FX NOW" to "Hey boss. I'm ready. Connect your secure AI backend in Settings to start real conversations.")) }
+ val pulse = rememberInfiniteTransition(label = "orb")
+ val glow by pulse.animateFloat(initialValue = 0.94f, targetValue = 1.06f, animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Reverse), label = "glow")
+ MaterialTheme(colorScheme = darkColorScheme(primary = Cyan, background = Bg, surface = Panel)) {
+  Column(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0B1222), Bg, Color(0xFF090713)))).padding(horizontal = 16.dp, vertical = 12.dp)) {
+   Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
     Column(Modifier.weight(1f)) {
-     Text("FX  /  NOW", color = Gold, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 3.sp)
-     Text("Your phone. Your command.", color = Muted, fontSize = 12.sp)
+     Text("FX  NOW", color = Cyan, fontSize = 21.sp, fontWeight = FontWeight.Black, letterSpacing = 4.sp)
+     Text("PERSONAL INTELLIGENCE SYSTEM", color = Soft, fontSize = 9.sp, letterSpacing = 2.sp)
     }
-    Text("● SYSTEM READY", color = Gold, fontSize = 10.sp)
+    IconButton(onClick = { showSettings = true }) { Icon(Icons.Default.Settings, "Settings", tint = Cyan) }
    }
-   Spacer(Modifier.height(22.dp))
-   when(page) {
-    "Home" -> {
-     Surface(Modifier.fillMaxWidth(), color = Panel, shape = RoundedCornerShape(26.dp), border = BorderStroke(1.dp, Color(0xFF33313A))) {
-      Column(Modifier.padding(20.dp)) {
-       Text("FX INTELLIGENCE", color = Muted, fontSize = 11.sp, letterSpacing = 2.sp)
-       Spacer(Modifier.height(12.dp))
-       Text("Yo, boss.", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.SemiBold)
-       Text("What are we getting done today?", color = Muted)
-       Spacer(Modifier.height(18.dp))
-       OutlinedTextField(command, { command = it }, Modifier.fillMaxWidth(), placeholder = { Text("Try: show apps / new task idea") }, singleLine = true)
-       Spacer(Modifier.height(8.dp))
-       Button(onClick = {
-        val c = command.trim()
-        when {
-         c.equals("help", true) -> status = "Commands: show apps, show tasks, status, new task <title>, settings"
-         c.equals("show apps", true) || c.equals("open apps", true) -> page = "Apps"
-         c.equals("show tasks", true) || c.equals("open tasks", true) -> page = "Tasks"
-         c.equals("settings", true) || c.equals("open settings", true) -> page = "Settings"
-         c.equals("status", true) -> status = "FX NOW active • " + apps.size + " apps • " + tasks.count { !it.second } + " pending tasks"
-         c.startsWith("new task ", true) -> { tasks = tasks + (c.substringAfter("new task ").trim() to false); saveTasks(ctx, tasks); status = "Task added." }
-         else -> status = "Type help to see supported commands."
-        }
-        command = ""
-       }, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text("RUN COMMAND  ↗") }
-       Spacer(Modifier.height(10.dp))
-       Text(status, color = Gold, fontSize = 12.sp)
-      }
-     }
-     Spacer(Modifier.height(16.dp))
-     Text("QUICK CONTROL", color = Muted, fontSize = 11.sp, letterSpacing = 2.sp)
-     Spacer(Modifier.height(10.dp))
-     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-      QuickCard("Apps", apps.size.toString() + " detected", Modifier.weight(1f)) { page = "Apps" }
-      QuickCard("Tasks", tasks.count { !it.second }.toString() + " pending", Modifier.weight(1f)) { page = "Tasks" }
-     }
-     Spacer(Modifier.height(10.dp))
-     QuickCard("FX AI", "AI provider integration foundation", Modifier.fillMaxWidth()) { page = "FX AI" }
-    }
-    "Apps" -> {
-     Text("APP VAULT", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-     OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("Search installed apps") }, singleLine = true)
-     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-      items(apps.filter { it.first.contains(query, true) }) { app ->
-       Surface(Modifier.fillMaxWidth().clickable {
-        ctx.packageManager.getLaunchIntentForPackage(app.second)?.let { ctx.startActivity(it) }
-       }, color = Panel, shape = RoundedCornerShape(14.dp)) {
-        Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-         Text(app.first, color = Color.White, modifier = Modifier.weight(1f))
-         Icon(Icons.Default.ArrowOutward, null, tint = Gold)
-        }
-       }
-      }
+   Spacer(Modifier.height(8.dp))
+   Box(Modifier.fillMaxWidth().weight(0.9f), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(176.dp).scale(glow).background(Brush.radialGradient(listOf(Color(0x5569E4FF), Color(0x229B8CFF), Color.Transparent)), CircleShape), contentAlignment = Alignment.Center) {
+     Box(Modifier.size(112.dp).background(Brush.linearGradient(listOf(Color(0xFF1D4564), Color(0xFF3A2C68), Color(0xFF10192B))), CircleShape), contentAlignment = Alignment.Center) {
+      Text("FX", color = Color.White, fontSize = 34.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
      }
     }
-    "Tasks" -> {
-     var newTask by remember { mutableStateOf("") }
-     Text("MISSION BOARD", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-     Row(verticalAlignment = Alignment.CenterVertically) {
-      OutlinedTextField(newTask, { newTask = it }, Modifier.weight(1f), placeholder = { Text("Add a task") }, singleLine = true)
-      IconButton(onClick = { if (newTask.isNotBlank()) { tasks = tasks + (newTask.trim() to false); saveTasks(ctx, tasks); newTask = "" } }) { Icon(Icons.Default.Add, "Add", tint = Gold) }
-     }
-     LazyColumn {
-      items(tasks.toList()) { task ->
-       Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(task.second, { done -> tasks = tasks.map { if (it == task) it.first to done else it }; saveTasks(ctx, tasks) })
-        Text(task.first, color = if (task.second) Muted else Color.White, modifier = Modifier.weight(1f))
-        IconButton(onClick = { tasks = tasks.filterNot { it == task }; saveTasks(ctx, tasks) }) { Icon(Icons.Default.DeleteOutline, "Delete", tint = Muted) }
-       }
-      }
-     }
-    }
-    "FX AI" -> {
-     Text("FX AI CORE", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-     InfoCard("AI is not connected yet", "Online research, autonomous coding and voice features need a configured AI provider, internet access and explicit permissions.")
-     InfoCard("Built-in commands", "Use help, show apps, show tasks, status, or new task <title> from Home.")
-     InfoCard("Android safety", "FX NOW uses supported Android intents and permissions. It cannot bypass system security or control every app without authorization.")
-    }
-    else -> {
-     Text("CONTROL SETTINGS", color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-     InfoCard("Set as Home app", "Choose FX NOW in Android Settings → Apps → Default apps → Home app.")
-     Button(onClick = { ctx.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }, Modifier.fillMaxWidth()) { Text("OPEN ANDROID SETTINGS") }
-     InfoCard("Local privacy", "Tasks are saved on this device. No cloud sync or account is enabled in this MVP.")
+    Column(Modifier.align(Alignment.BottomCenter), horizontalAlignment = Alignment.CenterHorizontally) {
+     Text("J.A.R.V.I.S. MODE", color = Cyan, fontSize = 10.sp, letterSpacing = 3.sp, fontWeight = FontWeight.Bold)
+     Spacer(Modifier.height(5.dp))
+     Text(status, color = Soft, fontSize = 9.sp)
     }
    }
-   Spacer(Modifier.weight(1f))
-   NavigationBar(containerColor = Panel) {
-    listOf("Home", "Apps", "Tasks", "FX AI", "Settings").forEach { item ->
-     NavigationBarItem(selected = page == item, onClick = { page = item }, icon = {
-      Icon(when(item) { "Home" -> Icons.Default.Home; "Apps" -> Icons.Default.GridView; "Tasks" -> Icons.Default.CheckCircle; "FX AI" -> Icons.Default.AutoAwesome; else -> Icons.Default.Settings }, null)
-     }, label = { Text(item, fontSize = 9.sp) }, colors = NavigationBarItemDefaults.colors(selectedIconColor = Gold, selectedTextColor = Gold, indicatorColor = Color(0xFF34302A), unselectedIconColor = Muted, unselectedTextColor = Muted))
-    }
-   }
-  }
- }
-}
-
-@Composable
-private fun QuickCard(title: String, detail: String, modifier: Modifier = Modifier, click: () -> Unit) {
- Surface(modifier.clickable { click() }, color = Panel, shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Color(0xFF292B33))) {
-  Column(Modifier.padding(16.dp)) {
-   Text(title, color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-   Spacer(Modifier.height(5.dp))
-   Text(detail, color = Muted, fontSize = 11.sp)
-  }
- }
-}
-@Composable
-private fun InfoCard(title: String, detail: String) {
- Surface(Modifier.fillMaxWidth().padding(bottom = 10.dp), color = Panel, shape = RoundedCornerShape(18.dp)) {
-  Column(Modifier.padding(16.dp)) {
-   Text(title, color = Gold, fontWeight = FontWeight.SemiBold)
+   Text("CONVERSATION", color = Soft, fontSize = 10.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
    Spacer(Modifier.height(6.dp))
-   Text(detail, color = Muted, fontSize = 13.sp, lineHeight = 19.sp)
+   LazyColumn(Modifier.weight(1.25f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    items(messages) { msg ->
+     Surface(color = if (msg.first == "You") Color(0xFF152C3B) else Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+      Column(Modifier.padding(12.dp)) {
+       Text(msg.first.uppercase(), color = if (msg.first == "You") Cyan else Violet, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+       Spacer(Modifier.height(4.dp))
+       Text(msg.second, color = Color(0xFFE7EDF7), fontSize = 14.sp, lineHeight = 20.sp)
+      }
+     }
+    }
+   }
+   Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    OutlinedTextField(input, { input = it }, modifier = Modifier.weight(1f), placeholder = { Text("Ask FX NOW anything…", fontSize = 13.sp) }, shape = RoundedCornerShape(18.dp), maxLines = 4)
+    FilledIconButton(onClick = { onListen { heard -> input = heard } }, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color(0xFF192C42))) { Icon(Icons.Default.Mic, "Voice", tint = Cyan) }
+    FilledIconButton(onClick = {
+     val prompt = input.trim()
+     if (prompt.isNotEmpty() && !busy) {
+      messages = messages + ("You" to prompt)
+      input = ""
+      busy = true
+      status = "THINKING…"
+      val history = messages.filter { it.first == "You" || it.first == "FX NOW" }.map { (role, content) -> JSONObject().put("role", if (role == "You") "user" else "assistant").put("content", content) }
+      thread {
+       var reply: String
+       try {
+        if (baseUrl.isBlank()) throw IllegalStateException("Backend URL missing. Open Settings and enter your deployed HTTPS backend URL.")
+        val conn = (URL(baseUrl.trimEnd('/') + "/api/chat").openConnection() as HttpURLConnection)
+        conn.requestMethod = "POST"; conn.connectTimeout = 12000; conn.readTimeout = 45000; conn.doOutput = true
+        conn.setRequestProperty("Content-Type", "application/json")
+        if (token.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer $token")
+        val body = JSONObject().put("messages", JSONArray(history)).put("provider", if (provider == "auto") JSONObject.NULL else provider).toString()
+        conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        val responseCode = conn.responseCode
+        val stream = if (responseCode in 200..299) conn.inputStream else conn.errorStream
+        val response = stream.bufferedReader().use { it.readText() }
+        val json = JSONObject(response)
+        if (responseCode !in 200..299) throw IllegalStateException(json.optString("error", "AI request failed (" + responseCode + ")"))
+        reply = json.optString("reply", "No reply received.")
+        conn.disconnect()
+       } catch (e: Exception) { reply = "Setup needed: " + (e.message ?: "Could not reach AI backend.") }
+       val answer = reply
+       android.os.Handler(android.os.Looper.getMainLooper()).post {
+        messages = messages + ("FX NOW" to answer)
+        status = if (answer.startsWith("Setup needed:")) "BACKEND NEEDS SETUP" else "RESPONSE RECEIVED"
+        busy = false
+        if (speakReplies) onSpeak(answer)
+       }
+      }
+     }
+    }, enabled = !busy, modifier = Modifier.size(48.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = Cyan)) {
+     if (busy) CircularProgressIndicator(Modifier.size(20.dp), color = Bg, strokeWidth = 2.dp) else Icon(Icons.Default.Send, "Send", tint = Bg)
+    }
+   }
+   Spacer(Modifier.height(8.dp))
+   Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+    Text(if (busy) "PROCESSING REQUEST" else "MULTI-PROVIDER READY", color = Soft, fontSize = 9.sp, letterSpacing = 1.sp)
+    TextButton(onClick = onStop) { Icon(Icons.Default.Stop, null, tint = Violet, modifier = Modifier.size(14.dp)); Text(" STOP VOICE", color = Violet, fontSize = 9.sp) }
+   }
   }
+  if (showSettings) AlertDialog(
+   onDismissRequest = { showSettings = false },
+   title = { Text("FX NOW • CONFIGURATION", color = Cyan) },
+   text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Text("Backend URL (HTTPS)", color = Soft, fontSize = 12.sp)
+    OutlinedTextField(baseUrl, { baseUrl = it }, singleLine = true, placeholder = { Text("https://your-server.example") })
+    Text("Optional server access token", color = Soft, fontSize = 12.sp)
+    OutlinedTextField(token, { token = it }, singleLine = true, placeholder = { Text("Access token") })
+    Text("AI provider", color = Soft, fontSize = 12.sp)
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+     OutlinedButton(onClick = { expanded = true }) { Text(when(provider) { "gemini" -> "Gemini • Free-tier priority"; "openai" -> "OpenAI-compatible"; "anthropic" -> "Claude"; else -> "Automatic provider" }, color = Cyan) }
+     DropdownMenu(expanded, { expanded = false }) {
+      listOf("auto" to "Automatic (Gemini priority)", "gemini" to "Gemini", "openai" to "OpenAI-compatible", "anthropic" to "Claude").forEach { (id, label) ->
+       DropdownMenuItem(text = { Text(label) }, onClick = { provider = id; expanded = false })
+      }
+     }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(speakReplies, { speakReplies = it }); Text("Speak replies aloud", color = Soft, fontSize = 13.sp) }
+    Text("Provider API keys must stay on your backend server; do not paste them here.", color = Soft, fontSize = 11.sp)
+   } },
+   confirmButton = { TextButton(onClick = { showSettings = false; status = if (baseUrl.isBlank()) "BACKEND URL REQUIRED" else "BACKEND URL SAVED FOR THIS SESSION" }) { Text("SAVE") } },
+   dismissButton = { TextButton(onClick = { showSettings = false; onStop() }) { Text("CLOSE") } }
+  )
  }
-}
-private fun loadTasks(ctx: Context): List<Pair<String, Boolean>> = try {
- val a = JSONArray(ctx.getSharedPreferences("fxnow", Context.MODE_PRIVATE).getString("tasks", "[]"))
- (0 until a.length()).map { val o = a.getJSONObject(it); o.getString("title") to o.getBoolean("done") }
-} catch (_: Exception) { emptyList() }
-private fun saveTasks(ctx: Context, tasks: List<Pair<String, Boolean>>) {
- val a = JSONArray()
- tasks.forEach { (title, done) -> a.put(JSONObject().put("title", title).put("done", done)) }
- ctx.getSharedPreferences("fxnow", Context.MODE_PRIVATE).edit().putString("tasks", a.toString()).apply()
 }
